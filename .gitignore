@@ -4,5 +4,6 @@
 /.vscode/
 /build/
 /__pycache__/
+/.venv/
 /nn_saved_weights/
 /saved_results/
