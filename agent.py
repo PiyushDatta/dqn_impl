@@ -152,7 +152,7 @@ class Agent():
     # use bellman equation to get expected q-value of actual states
     # we get the max q value here, regardless of action taken for prior state
     q_curr_state_values = target_agent.predict(
-        curr_states).max(dim=1, keepdim=True)[0]
+        curr_states).max(dim=1, keepdim=True)[0].detach()
     mask = 1 - dones
     q_target = rewards + self.discount_factor * q_curr_state_values * mask
 
