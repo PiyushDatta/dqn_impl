@@ -123,11 +123,12 @@ class Agent():
       which should be >= batch size.
 
       We take a minibatch (of size batch_size) from our replay memory. We use our 
-      train_agent (policy network) to predict the Q values for the previous states.
-      We use our target_agent (target network) to predict the Q values for the 
-      current states, but we use these Q values from target_agent in our bellman
-      equation to get the real Q values. Finally, we compare the Q values from
-      the policy network with the Q values we get from the bellman equation.
+      train_agent (policy network) to predict the Q values for the previous states, 
+      and take the Q-value of the action taken in prev_state (we can do this using 
+      our actions batch). We use our target_agent (target network) to predict the 
+      max Q values for the current states, but we use these Q values from target_agent 
+      in our bellman equation to get the max Q values. Finally, we compare the Q 
+      values from the policy network with the Q value we get from the bellman equation.
     """
     # only start training process when we have enough experiences in the replay
     if len(self.replay_memory) < self.batch_size:
@@ -136,21 +137,24 @@ class Agent():
     # sample random batch from replay memory
     minibatch = self.replay_memory.sample(self.batch_size)
     prev_states = np.vstack([x.prev_state for x in minibatch])
-    actions = np.array([x.action for x in minibatch])
-    rewards = np.array([x.reward for x in minibatch])
+    actions = torch.LongTensor(
+        np.array([x.action for x in minibatch]).reshape(-1, 1)).to(self.device)
+    rewards = torch.FloatTensor(
+        np.array([x.reward for x in minibatch]).reshape(-1, 1)).to(self.device)
     curr_states = np.vstack([x.curr_state for x in minibatch])
-    dones = np.array([x.done for x in minibatch])
+    dones = torch.FloatTensor(
+        np.array([x.done for x in minibatch]).reshape(-1, 1)).to(self.device)
 
     # use train network to predict q values of prior states (before actual states)
-    q_predict = self.predict(prev_states)
+    # get the q value of action taken for the prior state (given by actions)
+    q_predict = self.predict(prev_states).gather(1, actions)
 
     # use bellman equation to get expected q-value of actual states
-    q_target = q_predict.cpu().clone().data.numpy()
-    q_curr_state_values = np.max(target_agent.predict(curr_states).cpu().data.numpy(),
-                                 axis=1)
-    bellman_eq = rewards + self.discount_factor * q_curr_state_values * ~dones
-    q_target[np.arange(len(q_target)), actions] = bellman_eq
-    q_target = self.preprocess_observation(q_target)
+    # we get the max q value here, regardless of action taken for prior state
+    q_curr_state_values = target_agent.predict(
+        curr_states).max(dim=1, keepdim=True)[0]
+    mask = 1 - dones
+    q_target = rewards + self.discount_factor * q_curr_state_values * mask
 
     # train our network based on the results from its
     # q_predict to expected values given by our target network (q_target)
@@ -158,5 +162,15 @@ class Agent():
     self.optimizer.zero_grad()
     loss = self.loss_function(q_predict, q_target)
     loss.backward()
+
+    # gradient clipping (use if you want)
+    # for param in self.__model.parameters():
+    #   param.grad.data.clamp_(-1, 1)
+
     self.optimizer.step()
-    return loss, np.mean(bellman_eq)
+
+    # convert the loss and q_target to floats and
+    # return them so we can analyze later
+    float_loss = np.mean(loss.cpu().detach().numpy()).item()
+    float_q_target = np.mean(q_target.cpu().detach().numpy()).item()
+    return float_loss, float_q_target
