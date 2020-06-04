@@ -154,7 +154,8 @@ class Agent():
     q_curr_state_values = target_agent.predict(
         curr_states).max(dim=1, keepdim=True)[0].detach()
     mask = 1 - dones
-    q_target = rewards + self.discount_factor * q_curr_state_values * mask
+    q_target = (rewards + self.discount_factor *
+                q_curr_state_values * mask).to(self.device)
 
     # train our network based on the results from its
     # q_predict to expected values given by our target network (q_target)
